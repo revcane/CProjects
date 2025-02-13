@@ -25,30 +25,30 @@ int checkRange(double value1){
 }
 
 int main(int argc, char *argv[]){
-    int fd;
+    int fd; //file descriptor
 
-    double pitch;
+    double pitch; //values are stored as doubles in the angl.dat file
     double roll;
     double yaw;
 
     fd = checkError(open("angl.dat",O_RDONLY), "error in opening angl.dat\n");
 
     while (read(fd, &roll, sizeof(double)) == sizeof(double) && read(fd, &pitch, sizeof(double)) == sizeof(double) && read(fd, &yaw, sizeof(double)) == sizeof(double)) {
- 
         if (checkRange(roll)) {
             printf("Roll: %f (INSIDE), ", roll);
-        } else {
+        } 
+        else {
             printf("Roll: %f (OUTSIDE), ", roll);
         }
-        
         if (checkRange(pitch)) {
             printf("Pitch: %f (INSIDE)\n", pitch);
-        } else {
+        } 
+        else {
             printf("Pitch: %f (OUTSIDE)\n", pitch);
         }
-        
- nanosleep(&ts, NULL);
-}
+    
+    nanosleep(&ts, NULL);
+    }
 
 close(fd);
 return 0;
