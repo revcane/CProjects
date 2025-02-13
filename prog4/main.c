@@ -1,13 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <unistd.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <time.h>
-
-
-#define BUF_SIZE 4096
 
 struct timespec ts = {1, 0};
 
