@@ -34,7 +34,7 @@ void sigHndl(int sig) {
     }
     if (sig == SIGALRM) {
         timerbool = 1;
-        write(STDOUT_FILENO, "\nTime has elapsed!\n", 19);
+        write(STDOUT_FILENO, "\nTime has elapsed! Press a key to continue.\n", 45);
     }
 }
 
@@ -107,9 +107,12 @@ int main() {
         setitimer(ITIMER_REAL, &timer, NULL);  //start the timer
 
         int readInput = read(STDIN_FILENO, answer_input, BUFFERSIZE - 1);
-        
-        if (timerbool) { // If time elapsed, move to next question
+
+
+
+        if (timerbool) {
             write(STDOUT_FILENO, "Skipping to next question...\n", 29);
+            timerbool = 0;
             free(question); 
             free(answer);
             continue;
