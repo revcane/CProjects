@@ -33,8 +33,13 @@ void sigHndl(int sig) {
         }
     }
     if (sig == SIGCHLD){
-        while (waitpid(-1, &status, WNOHANG) > 0){
+        while (waitpid(-1, &status, WNOHANG) > 0) {
             printf("shot the child :(\n");
+        }
+
+        if (waitpid(-1, NULL, WNOHANG) == -1) {
+            printf("no more children, goodbye\n"); 
+            exit(EXIT_SUCCESS);
         }
     }
     if (sig == SIGUSR1){
