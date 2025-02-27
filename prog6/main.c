@@ -33,11 +33,11 @@ void sigHndl(int sig) {
         }
     }
     if (sig == SIGCHLD){
-        while (waitpid(-1, &status, WNOHANG) > 0) {
+        while (waitpid(-1, &status, WNOHANG) > 0) { //removing child processes
             printf("shot the child :(\n");
         }
 
-        if (waitpid(-1, NULL, WNOHANG) == -1) {
+        if (waitpid(-1, NULL, WNOHANG) == -1) { //if it returns -1 (error)
             printf("no more children, goodbye\n"); 
             exit(EXIT_SUCCESS);
         }
@@ -49,14 +49,11 @@ void sigHndl(int sig) {
     {
         printf("Warning! Pitch outside of bounds\n");
     }
-    
-}
-
-void childSignals(int sig) {
     if (sig == SIGTERM){
         printf("child sigterm, exiting\n");
         exit(EXIT_SUCCESS);
     }
+    
 }
 
 int checkRange(double value1){
@@ -67,8 +64,8 @@ int childActions(){
     struct timespec ts = {1, 0};
     pid_t pid = getpid();
 
-    struct sigaction csa;
-    csa.sa_handler = childSignals;
+    struct sigaction csa; //child signal handler
+    csa.sa_handler = sigHndl;
     csa.sa_flags = 0;
     sigemptyset(&csa.sa_mask);
     
@@ -77,7 +74,7 @@ int childActions(){
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
-    sigprocmask(SIG_BLOCK, &mask, NULL); //masking sigint
+    sigprocmask(SIG_BLOCK, &mask, NULL); //masking sigint so children dont explode
 
     printf("child pid: %d started\n",pid);
 
@@ -90,7 +87,7 @@ int childActions(){
     fd = checkError(open("angl.dat",O_RDONLY), "error in opening angl.dat\n");
 
     while (read(fd, &roll, sizeof(double)) == sizeof(double) && read(fd, &pitch, sizeof(double)) == sizeof(double) && read(fd, &yaw, sizeof(double)) == sizeof(double)) {
-        if (checkRange(roll)) {
+        if (checkRange(roll)) { //straight out of program 4, loops reading as long as there is content to read
             printf("Roll: %f (INSIDE), ", roll);
         } 
         else {
@@ -125,7 +122,7 @@ int main(){
     pid_t pid;
     int i = 0;
     
-    pid = fork();
+    pid = fork(); //creating the child
 
     if (pid == -1){
         perror("forking error");
@@ -137,7 +134,7 @@ int main(){
     }
     else { 
         printf("parent pid: %d\n", getpid());
-        while (1){
+        while (1){ //puts parent on loop so program can listen for signals
             pause();
         } 
     }
