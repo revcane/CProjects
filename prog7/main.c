@@ -132,6 +132,21 @@ int parentActions(pid_t p1, pid_t p2){
     int score2 = 0;
     char buf[10];
 
+    for (int game = 1; game <= 10; game++) {
+        printf("Starting Game %d\n", game);
+
+        srand(time(NULL));
+        target = 1 + rand() % 100;
+
+        while (1) {
+            int fd1 = checkError(open("guess1", O_RDONLY), "open guess1");
+            int fd2 = checkError(open("guess2", O_RDONLY), "open guess2");
+
+
+        }
+
+
+    }
     /*
     Set the disposition for SIGINT
     Sleep for 5 seconds
@@ -166,31 +181,24 @@ int main(int argc, char const *argv[])
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
-    sigaction(SIGCHLD, &sa, NULL);
-    //sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGUSR1, &sa, NULL);
-    sigaction(SIGUSR2, &sa, NULL);
+    checkError(sigaction(SIGCHLD, &sa, NULL), "sigaction SIGCHLD");
+    checkError(sigaction(SIGUSR1, &sa, NULL), "sigaction SIGUSR1");
+    checkError(sigaction(SIGUSR2, &sa, NULL), "sigaction SIGUSR2");
 
     //Use fork to spawn child 1 and child 2.
     //Call the parent function
+    pid_t pids[2]
 
-    for (i = 0; i < 2; i++)
-    {
-        pid[i] = fork();
-        switch (pid[i])
-        {
-        case -1:
-
-            break;
-        
-        case 0:
-
-            break;
-    
-        default:
-            break;
+    for (int i = 0; i < 2; i++) {
+        pids[i] = checkError(fork(), "fork exploded for the second time");
+        if (pids[i] == 0) {
+            childActions(i + 1); // p1 = 0+1, p2 = 1+1 
+            exit(0);
         }
     }
+
+    parentActions(pids[0], pids[1]); pass over the pids
+
 
     return 0;
 }
