@@ -70,7 +70,7 @@ int player2guess(int low, int high){
     return low + rand() % (high - low + 1);
 }
 
-int childActions(){
+int childActions(int player){
     struct sigaction csa; //child signal handler
     csa.sa_handler = cSigHndl;
     csa.sa_flags = 0;
@@ -83,42 +83,55 @@ int childActions(){
     sigaddset(&mask, SIGINT);
     sigprocmask(SIG_BLOCK, &mask, NULL); //masking sigint so children dont explode
     
-    if (player_num == 1){ //child is ready
+    if (player == 1){ //child is ready
         kill(getppid(), SIGUSR1);
     }
-    else {
+    else{
         kill(getppid(), SIGUSR2);
     }
     
-    while(1){
-        if (player_num == 1){
-            guess = player1guess(lower, upper);
+    while(1){ //picking guess based on argument
+        if (player == 1){
+            guess = player1guess(low, high);
         } 
         else {
-            guess = player2guess(lower, upper);
+            guess = player2guess(low, high);
         }
+
+        char buf[10]; 
+        int len = snprintf(buf, sizeof(buf), "%d", guess);
+
+        int fd;
+        if (player == 1){ //open and writing guesses to file
+            fd = checkError(open("guess1", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess1");
+        } 
+        else{
+            fd = checkError(open("guess2", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess2");
+        }
+
+        checkError(write(fd, buf, len), "write guess file");
+        checkError(close(fd), "close guess file");
+
+        if (player == 1){ // send signal to parent
+            kill(getppid(), SIGUSR1);
+        } 
+        else{
+            kill(getppid(), SIGUSR2);
+        }
+
+        pause(); //waiting for response
     }
-    /*
-    Loop forever -- game loop
-    Set min to 0, max to 101
-    Signal the parent
-        In my game, child 1 sends SIGUSR1, child 2 sends SIGUSR2
-    Loop forever -- guess loop
-        Set the flags that store handling SIGUSR1, SIGUS2, and SIGINT to 0
-        Each child should guess a value based on its strategy (see below)
-        Write the guess into a file. Each child should have its own file.
-        Sleep for 1 second
-        Signal the parent
-        In my game, child 1 sends SIGUSR1, child 2 sends SIGUSR2
-        Wait until the parent responds with a signal
-        If the parent responds with SIGUSR1 the guess was low, so set min to the guess
-        If the parent responds with SIGUSR2 the guess was high, so set max to the guess
-        If the parent responds with SIGINT the parent is moving to the next game, exit the guess loop
-    */
+
 
 }
 
-int parentActions(){
+int parentActions(pid_t p1, pid_t p2){
+    int target;
+    int guess1, guess2;
+    int score1 = 0;
+    int score2 = 0;
+    char buf[10];
+
     /*
     Set the disposition for SIGINT
     Sleep for 5 seconds
