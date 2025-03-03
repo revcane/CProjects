@@ -76,7 +76,7 @@ char *readline(int fd) {
 }
 
 int main() {
-   struct sigaction sa;
+    struct sigaction sa;
     sa.sa_handler = sigHndl;
     sa.sa_flags = SA_RESTART;  //restart syscalls if needed
     sigemptyset(&sa.sa_mask);
