@@ -56,16 +56,18 @@ void cSigHndl (int sig){
     }
 }
 
-int player1guess(int x,  int y){
+int player1guess(int low,  int high){
    // Player 1 should compute its guess by taking the average of min and max
-
+    return (high/low) / 2;
 }
-int player2guess(){
+int player2guess(int low, int high){
     /*
     Player 2 should compute its guess by generating a random number between min and max
     Remember to seed the random number generator using srand
     it is a good idea to the generate a few random numbers to prevent the parent and child 2 from generating the same random numbers every time.
     */
+    srand(time(NULL) ^ getpid());
+    return low + rand() % (high - low + 1);
 }
 
 int childActions(){
@@ -80,8 +82,22 @@ int childActions(){
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigprocmask(SIG_BLOCK, &mask, NULL); //masking sigint so children dont explode
-    //Wait until the parent has sent SIGUSR1 or SIGUSR2
     
+    if (player_num == 1){ //child is ready
+        kill(getppid(), SIGUSR1);
+    }
+    else {
+        kill(getppid(), SIGUSR2);
+    }
+    
+    while(1){
+        if (player_num == 1){
+            guess = player1guess(lower, upper);
+        } 
+        else {
+            guess = player2guess(lower, upper);
+        }
+    }
     /*
     Loop forever -- game loop
     Set min to 0, max to 101
@@ -144,6 +160,24 @@ int main(int argc, char const *argv[])
 
     //Use fork to spawn child 1 and child 2.
     //Call the parent function
+
+    for (i = 0; i < 2; i++)
+    {
+        pid[i] = fork();
+        switch (pid[i])
+        {
+        case -1:
+
+            break;
+        
+        case 0:
+
+            break;
+    
+        default:
+            break;
+        }
+    }
 
     return 0;
 }
