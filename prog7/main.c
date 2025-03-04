@@ -18,10 +18,15 @@ return val;
 }
 
 void pSigHndl (int sig){
-    if (sig == SIGINT) {
+    int status;
+    int readycount = 0;
+    if (sig == SIGINT){
         //SIGINT should send a SIGTERM to both children
+        printf("kill all children\n");
+        checkError(kill(0, SIGTERM), "failed to kill all children");
+        exit(EXIT_SUCCESS);
     }
-    if (sig == SIGCHLD) {
+    if (sig == SIGCHLD){
         //reap children
         while (waitpid(-1, &status, WNOHANG) > 0) { //removing child processes
             printf("shot the child :(\n");
@@ -33,26 +38,42 @@ void pSigHndl (int sig){
         }
     }
     //SIGUSR1 and SIGUSR2 represent the handshakes from the respective children
-    if (sig == SIGUSR1) {
-
+    if (sig == SIGUSR1){
+        readycount++;
+        if (readycount == 2) {
+            printf("Both children are ready. Starting the game!\n");
+        }
     }
-    if (sig == SIGUSR2) {
-
+    if (sig == SIGUSR2){
+        readycount++;
+        if (readycount == 2) {
+            printf("Both children are ready. Starting the game!\n");
+        }
     }
 }
 
 void cSigHndl (int sig){
-    if (sig == SIGUSR1) {
+    static int low = 0, high = 100; //bounds
+    if (sig == SIGUSR1){
         //high guess
+        low = (low + high) / 2; //change lower bound
+        printf("got SIGUSR1, going higher, range: [%d, %d]\n", low, high);
     }
-    if (sig == SIGUSR2) {
+    if (sig == SIGUSR2){
         //low guess
+        high = (low + high) / 2; //change upper bound
+        printf("got SIGUSR2, going lower, range: [%d, %d]\n", low, high);
     }
-    if (sig == SIGTERM) {
+    if (sig == SIGTERM){
         //exit child
+        printf("Child: Received SIGTERM. Exiting...\n");
+        exit(EXIT_SUCCESS);
     }
-    if (sig == SIGINT) {
-        //SIGINT tells the child to stop guessing a start over
+    if (sig == SIGINT){
+        //SIGINT tells the child to stop guessing and start over
+        low = 0;
+        high = 100;
+        printf("Child: Received SIGINT, resetting game...\n");
     }
 }
 
@@ -82,6 +103,8 @@ int childActions(int player){
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
     sigprocmask(SIG_BLOCK, &mask, NULL); //masking sigint so children dont explode
+
+    int guess,low,high;
     
     if (player == 1){ //child is ready
         kill(getppid(), SIGUSR1);
@@ -125,59 +148,83 @@ int childActions(int player){
 
 }
 
-int parentActions(pid_t p1, pid_t p2){
-    int target;
+void parentActions(pid_t p1, pid_t p2){
+    int goal;
     int guess1, guess2;
-    int score1 = 0;
-    int score2 = 0;
+    int p1score = 0;
+    int p2score = 0;
     char buf[10];
+    char buf2[10];
 
     for (int game = 1; game <= 10; game++) {
         printf("Starting Game %d\n", game);
 
         srand(time(NULL));
-        target = 1 + rand() % 100;
+        goal = 1 + rand() % 100;
 
         while (1) {
-            int fd1 = checkError(open("guess1", O_RDONLY), "open guess1");
-            int fd2 = checkError(open("guess2", O_RDONLY), "open guess2");
+            pause();
 
+            int p1guessfd = checkError(open("guess1", O_RDONLY), "open guess1");
+            int bytesRead1 = checkError(read(p1guessfd, buf, sizeof(buf) - 1), "read guess1");
+            checkError(close(p1guessfd), "close guess1");
+            buf[bytesRead1] = '\0';
 
+            if (sscanf(buf, "%d", &guess1) != 1){
+                char errorMsg[] = "invalid guess format for p1\n";
+                write(STDERR_FILENO, errorMsg, sizeof(errorMsg) - 1);
+                exit(EXIT_FAILURE);
+            }
+            
+            int p2guessfd = checkError(open("guess2", O_RDONLY), "open guess2");
+            int bytesRead2 = checkError(read(p2guessfd, buf2, sizeof(buf2) - 1), "read guess2");
+            checkError(close(p2guessfd), "close guess2");
+            buf[bytesRead2] = '\0';
+
+            if (sscanf(buf, "%d", &guess2) != 1){
+                char errorMsg[] = "invalid guess format for p2\n";
+                write(STDERR_FILENO, errorMsg, sizeof(errorMsg) - 1);
+                exit(EXIT_FAILURE);
+            }
+
+            if (guess1 == goal || guess2 == goal){ //if player matches 
+                if (guess1 == goal){ 
+                    p1score++;
+                    printf("Game %d Winner: Player 1\n", game);
+                }
+                if (guess2 == goal){
+                    p2score++;
+                    printf("Game %d Winner: Player 2\n", game);
+                }
+                break;
+            }
+
+            if (guess1 < goal){//player1
+                kill(p1, SIGUSR1); //guess higher
+            } 
+            else{
+                kill(p1, SIGUSR2); //guess lower
+            }
+
+            if (guess2 < goal){ //player2
+                kill(p2, SIGUSR1); //guess higher
+            } 
+            else{
+                kill(p2, SIGUSR2); //guess lower
+            }
         }
-
-
+        kill(p1, SIGINT);
+        kill(p2, SIGINT);
     }
-    /*
-    Set the disposition for SIGINT
-    Sleep for 5 seconds
-    Tell the children to begin playing the game
-        In my game, I do this by sending SIGUSR1 to child 1 and SIGUSR2 to child 2  
-    Loop from 0 to 10 (this is the game counter)
-        Wait until both children have signaled they are ready to begin
-            This basically means you are waiting until the parent handles both SIGUSR1 and SIGUSR2
-        Display statistics for the game ... so display game number, total wins per player, etc
-        Generate the target for this game -- the target is a random number between 1 and 100
-    Loop forever -- referee loop
-        Wait until both children have signaled they have made a guess
-            This basically means you are waiting until the parent handles both SIGUSR1 and SIGUSR2
-        Open the files containing the guesses and read the guesses
-        Close the files
-        Perform the following for each player
-            Compare their guess with the target and store the result
-        If either player wins,
-            check each player for a win and increment their score by 1
-            break the referee loop
-        otherwise perform the following for each player
-            if guess < target, send SIGUSR1 to the correct child
-            if guess > target, send SIGUSR2 to the correct child
-        send SIGINT to both children to tell them to reset their game play loop
-    Print the final results
-    */
+    printf("Final Score - Player 1: %d, Player 2: %d\n", p1score, p2score);
+    kill(p1, SIGTERM);
+    kill(p2, SIGTERM);
 }
+
 int main(int argc, char const *argv[])
 {
     struct sigaction sa;
-    sa.sa_handler = sigHndl;
+    sa.sa_handler = pSigHndl;
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
@@ -185,9 +232,7 @@ int main(int argc, char const *argv[])
     checkError(sigaction(SIGUSR1, &sa, NULL), "sigaction SIGUSR1");
     checkError(sigaction(SIGUSR2, &sa, NULL), "sigaction SIGUSR2");
 
-    //Use fork to spawn child 1 and child 2.
-    //Call the parent function
-    pid_t pids[2]
+    pid_t pids[2];
 
     for (int i = 0; i < 2; i++) {
         pids[i] = checkError(fork(), "fork exploded for the second time");
@@ -197,8 +242,6 @@ int main(int argc, char const *argv[])
         }
     }
 
-    parentActions(pids[0], pids[1]); pass over the pids
-
-
+    parentActions(pids[0], pids[1]); //pass over the pids
     return 0;
 }
