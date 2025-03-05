@@ -9,8 +9,6 @@
 #include <signal.h>
 #include <errno.h>
 
-volatile sig_atomic_t game_over = 0;
-
 volatile sig_atomic_t gotsig1 = 0;
 volatile sig_atomic_t gotsig2 = 0;
 volatile sig_atomic_t gotsigint = 0;
@@ -267,7 +265,7 @@ void parentActions(){
             //reading player 2 guesses
             guess2 = readFile(2);
 
-            printf("player 1: %d, player 2: %d (goal: %d)\n", guess1, guess2, goal); //TODO: WRITE()
+            printf("player 1: %d, player 2: %d (goal: %d)\n", guess1, guess2, goal);
 
             //determining winner
             if (guess1 == goal && guess2 == goal) {
