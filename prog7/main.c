@@ -9,92 +9,87 @@
 #include <signal.h>
 #include <errno.h>
 
-volatile sig_atomic_t readycount = 0;
-volatile sig_atomic_t game_over = 0; 
+volatile sig_atomic_t game_over = 0;
+
+volatile sig_atomic_t gotsig1 = 0;
+volatile sig_atomic_t gotsig2 = 0;
+volatile sig_atomic_t gotsigint = 0;
+
+volatile sig_atomic_t parent_received_sigusr1 = 0;
+volatile sig_atomic_t parent_received_sigusr2 = 0;
 
 int checkError(int val, const char *msg){
-    if (val == -1)
-   {
-       perror(msg);
-       exit(EXIT_FAILURE);
-   }
-return val;
+    if (val == -1) {
+        perror(msg);
+        exit(EXIT_FAILURE);
+    }
+    return val;
 }
 
-void pSigHndl (int sig){
-    printf("signal %d received in parent PID: %d\n", sig, getpid());
+void pSigHndl (int sig){ //SIGUSR2 triggers here
+    printf("(PID: %d): signal %d received in parent \n", getpid(), sig);
     fflush(stdout);
     
     int status;
-    static int children_ready = 0;
+    if (sig == SIGUSR1) {
+        parent_received_sigusr1 = 1;
+        printf("parent received signal from player 1\n");
+        fflush(stdout);
+    }
+    if (sig == SIGUSR2) {
+        parent_received_sigusr2 = 1;
+        printf("parent received signal from player 2\n");
+        fflush(stdout);
+    }
     if (sig == SIGINT) {
-        printf("Parent: Received SIGINT, terminating children...\n");
+        printf("received SIGINT, terminating children...\n");
         fflush(stdout);
         kill(0, SIGTERM);
-        exit(EXIT_SUCCESS);
     }
     if (sig == SIGCHLD) {
         while (waitpid(-1, &status, WNOHANG) > 0) {
-            printf("Parent: Child process terminated\n");
+            printf("child process terminated\n");
             fflush(stdout);
         }
         if (waitpid(-1, NULL, WNOHANG) == -1) {
-            printf("Parent: No more children, exiting...\n");
+            printf("the children are all dead\n");
             fflush(stdout);
             exit(EXIT_SUCCESS);
         }
-    }
-    if (sig == SIGUSR1 || sig == SIGUSR2) {
-        children_ready++;
-        readycount = children_ready;
-        printf("✅ Parent: Child handshake received. Ready count: %d\n", readycount);
-        fflush(stdout);
     }
 }
 
 void cSigHndl (int sig){
-    static int low = 0, high = 100; // bounds
-    printf("Child (PID: %d): Received signal %d\n", getpid(), sig); 
+    printf("(PID %d): Received signal %d\n", getpid(), sig);
     fflush(stdout);
     if (sig == SIGUSR1) {
-        high = (low + high) / 2; // change upper bound
-        printf("Child (PID: %d): got SIGUSR1, going lower, range: [%d, %d]\n", getpid(), low, high);
-        fflush(stdout);
+        gotsig1 = 1;
     }
     if (sig == SIGUSR2) {
-        low = (low + high) / 2; // change lower bound
-        printf("Child (PID: %d): got SIGUSR2, going higher, range: [%d, %d]\n", getpid(), low, high);
-        fflush(stdout);
+        gotsig2 = 1;
     }
-    if (sig == SIGTERM || sig == SIGINT) {
-        printf("Child (PID: %d): Received %s. Exiting...\n", getpid(), (sig == SIGTERM) ? "SIGTERM" : "SIGINT");
+    if (sig == SIGINT) { 
+        gotsigint = 1;
+    }
+    if (sig == SIGTERM) {
+        printf("(PID %d):  got SIGTERM, exiting\n", getpid());
         fflush(stdout);
-        if (sig == SIGINT) {
-            low = 0;
-            high = 100;
-            kill(getppid(), SIGUSR1);
-        } else {
-            exit(EXIT_SUCCESS);
-        }
+        exit(EXIT_SUCCESS);
     }
 }
 
 int player1guess(int low,  int high){
-   // Player 1 should compute its guess by taking the average of min and max
-    return (low + high) / 2;
+    return (low + high) / 2; //player 1 should compute its guess by taking the average of min and max
+
 }
 int player2guess(int low, int high){
-    /*
-    Player 2 should compute its guess by generating a random number between min and max
-    Remember to seed the random number generator using srand
-    it is a good idea to the generate a few random numbers to prevent the parent and child 2 from generating the same random numbers every time.
-    */
     srand(time(NULL) ^ getpid());
-    return low + rand() % (high - low + 1);
+    return low + rand() % (high - low + 1); //player 2 should compute its guess by generating a random number between min and max
+
 }
 
 int childActions(int player){
-    struct sigaction csa; //child signal handler
+    struct sigaction csa;
     csa.sa_handler = cSigHndl;
     sigemptyset(&csa.sa_mask);
     csa.sa_flags = 0;
@@ -104,61 +99,99 @@ int childActions(int player){
     checkError(sigaction(SIGTERM, &csa, NULL), "sigaction SIGTERM");
     checkError(sigaction(SIGINT, &csa, NULL), "sigaction SIGINT");
 
-    int guess;
-    int low = 0; 
-    int high = 100;
+    pause();
+    
+    while(1){ //game loop
 
-    pid_t parent_pid = getppid();
-    if (player == 1) {
-        kill(parent_pid, SIGUSR1);
-    } else {
-        kill(parent_pid, SIGUSR2);
-    }
+        int guess;
+        int low = 0; 
+        int high = 101;
 
-    while(1) {
+        pid_t parent_pid = getppid();
         if (player == 1) {
-            guess = player1guess(low, high);
+            checkError(kill(parent_pid, SIGUSR1), "error in sending SIGUSR1");
+            printf("(PID: %d): Sent initial signal to parent\n", getpid());
         } else {
-            guess = player2guess(low, high);
+            checkError(kill(parent_pid, SIGUSR2), "error in sending SIGUSR2");
+            printf("(PID: %d): Sent initial signal to parent\n", getpid());
         }
-
-        char buf[10]; 
-        int len = snprintf(buf, sizeof(buf), "%d", guess);
-
-        int fd;
-        if (player == 1) {
-            fd = checkError(open("guess1", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess1");
-        } else {
-            fd = checkError(open("guess2", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess2");
-        }
-
-        checkError(write(fd, buf, len), "write guess file");
-        checkError(close(fd), "close guess file");
-
-        parent_pid = getppid();
-        if (parent_pid == 1) {
-            printf("Child (PID: %d): Parent has terminated. Exiting...\n", getpid());
-            fflush(stdout);
-            exit(EXIT_SUCCESS);
-        }
-
-        int signal_to_send = (player == 1) ? SIGUSR1 : SIGUSR2; // X: Use consistent signal naming
-        printf("Child %d (PID: %d): Sending signal %d to parent (PID: %d)\n", player, getpid(), signal_to_send, parent_pid);
-        fflush(stdout);
-        if (kill(parent_pid, signal_to_send) == -1) {
-            perror("Child: Failed to send signal to parent");
-            exit(EXIT_FAILURE);
-        }
-
-        sleep(1);
-        printf("Child (PID: %d): Sleeping in child action\n", getpid());
         fflush(stdout);
 
+        printf("(PID: %d): waiting for response from parent before starting guess loop\n",getpid());
+        fflush(stdout);
         pause();
+
+        while(1) { // guess loop
+            gotsig1 = 0;
+            gotsig2 = 0;
+            gotsigint = 0;
+
+            if (player == 1) {
+                guess = player1guess(low, high);
+            } else {
+                guess = player2guess(low, high);
+            }
+
+            // Write guess to file
+            char buf[10]; 
+            int len = snprintf(buf, sizeof(buf), "%d", guess);
+            int fd;
+            if (player == 1) {
+                fd = checkError(open("guess1", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess1");
+            } else {
+                fd = checkError(open("guess2", O_WRONLY | O_CREAT | O_TRUNC, 0666), "open guess2");
+            }
+            checkError(write(fd, buf, len), "write guess file");
+            checkError(close(fd), "close guess file");
+
+            sleep(1);
+            // Signal parent
+            pid_t parent_pid = getppid();
+            if (player == 1) {
+                checkError(kill(parent_pid, SIGUSR1), "error in sending SIGUSR1");
+                printf("(PID: %d): Sent guess %d to parent\n", getpid(), guess);
+            } else {
+                checkError(kill(parent_pid, SIGUSR2), "error in sending SIGUSR2");
+                printf("(PID: %d): Sent guess %d to parent\n", getpid(), guess);
+            }
+            fflush(stdout);
+
+            // Wait for parent's response
+            printf("(PID: %d): waiting for response from parent in guess loop\n",getpid());
+            fflush(stdout);
+            pause();
+            
+            if (gotsig1) {
+                high = guess;
+                printf("(PID %d): got SIGUSR1, going lower, range: [%d, %d]\n", getpid(), low, high);
+            } 
+            if (gotsig2) {
+                low = guess;
+                printf("(PID %d): got SIGUSR2, going higher, range: [%d, %d]\n", getpid(), low, high);
+            }
+            if (gotsigint) {
+                printf("(PID %d): Restarting game\n", getpid());
+                low = 0;
+                high = 101;
+                break;
+            }
+            fflush(stdout);
+        }
     }
 }
 
 void parentActions(pid_t p1, pid_t p2){
+    struct sigaction sa;
+    sa.sa_handler = pSigHndl;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+    checkError(sigaction(SIGINT, &sa, NULL), "sigaction SIGINT");
+
+    sigset_t mask, oldmask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGUSR1);
+    sigaddset(&mask, SIGUSR2);
+
     int goal;
     int guess1, guess2;
     int p1score = 0;
@@ -166,32 +199,54 @@ void parentActions(pid_t p1, pid_t p2){
     char buf[10];
     char buf2[10];
 
-    srand(time(NULL));  // Called once at the beginning
+    srand(time(NULL));
 
-    sigset_t mask, oldmask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGUSR1);
-    sigaddset(&mask, SIGUSR2);
+    printf("P: sleeping for 5 seconds before starting the match\n");
+    fflush(stdout);
+    sleep(5);
+
+    checkError(kill(p1, SIGUSR1), "P: failed to send SIGUSR1 to P1");
+    checkError(kill(p2, SIGUSR2), "P: failed to send SIGUSR2 to P2");
+    printf("P: told children to start match\n");
+    fflush(stdout);
 
     for (int game = 1; game <= 10; game++) {
-        printf("Starting Game %d\n", game);
+        printf("Starting Game %d,\n Score: P1 - %d | P2 - %d\n", game,p1score,p2score);
         fflush(stdout);
 
+        //sigprocmask(SIG_BLOCK, &mask, &oldmask);
+        while (!parent_received_sigusr1 || !parent_received_sigusr2) {
+            pause();
+            // sigset_t suspendMask;
+            // sigemptyset(&suspendMask);
+            // sigsuspend(&suspendMask);
+        }
+        //sigprocmask(SIG_SETMASK, &oldmask, NULL);
+        //sigprocmask(SIG_UNBLOCK, &mask, NULL);
+        parent_received_sigusr1 = 1;
+        parent_received_sigusr2 = 1;
+        printf("P: told children to restart game\n");
+        fflush(stdout);
+
+        //pause();
+
         goal = 1 + rand() % 100;
-        game_over = 0; // X: Reset game_over flag
+        game_over = 0;
         
-        while (!game_over) { // X: Use game_over flag
-            printf("Parent: Waiting for child guesses...\n");
+        while (!game_over){
+            printf("Parent: Waiting for child guesses\n");
             fflush(stdout);
 
-            sigprocmask(SIG_BLOCK, &mask, &oldmask);
-
-            while (readycount < 2) {
-                sigsuspend(&oldmask);
+            while (!parent_received_sigusr1 || !parent_received_sigusr2) {
+                pause();
+                // sigset_t suspendMask;
+                // sigemptyset(&suspendMask);
+                // sigsuspend(&suspendMask);
             }
-            readycount = 0;
+            parent_received_sigusr1 = 0;
+            parent_received_sigusr2 = 0;
 
-            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            sigprocmask(SIG_BLOCK, &mask, &oldmask);
 
             // reading player 1 guesses
             int p1guessfd = checkError(open("guess1", O_RDONLY), "open guess1");
@@ -204,6 +259,7 @@ void parentActions(pid_t p1, pid_t p2){
                 write(STDERR_FILENO, errorMsg, sizeof(errorMsg) - 1);
                 exit(EXIT_FAILURE);
             }
+            
             // reading player 2 guesses
             int p2guessfd = checkError(open("guess2", O_RDONLY), "open guess2");
             int bytesRead2 = checkError(read(p2guessfd, buf2, sizeof(buf2) - 1), "read guess2");
@@ -216,80 +272,68 @@ void parentActions(pid_t p1, pid_t p2){
                 exit(EXIT_FAILURE);
             }
 
-            printf("Parent: Read guesses -> Player 1: %d, Player 2: %d (Goal: %d)\n", guess1, guess2, goal); // X: Added goal to debug output
+            printf("Parent: Read guesses -> Player 1: %d, Player 2: %d (Goal: %d)\n", guess1, guess2, goal);
             fflush(stdout);
 
-            if (guess1 < goal){ // player1
-                checkError(kill(p1, SIGUSR2), "Parent: Failed to send SIGUSR2 to Player 1"); // X: Added error checking
+            // --- determining winner
+            if (guess1 == goal && guess2 == goal) {
+                printf("Tie!\n");
+                fflush(stdout);
+                p1score++;
+                p2score++;
+                game_over = 1;
+            }
+            else if (guess1 == goal) {
+                printf("P1 win\n");
+                fflush(stdout);
+                p1score++;
+                game_over = 1;
+            }
+            else if (guess2 == goal) {
+                printf("P2 win\n");
+                fflush(stdout);
+                p2score++;
+                game_over = 1;
+            }
+            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            //no winner ifs
+            if (guess1 < goal) {
+                checkError(kill(p1, SIGUSR2), "Parent: Failed to send SIGUSR2 to Player 1");
                 printf("Parent: Telling Player 1 to guess higher\n");
                 fflush(stdout);
-            } 
-            else { 
-                checkError(kill(p1, SIGUSR1), "Parent: Failed to send SIGUSR1 to Player 1"); // X: Added error checking
+            } else { 
+                checkError(kill(p1, SIGUSR1), "Parent: Failed to send SIGUSR1 to Player 1");
                 printf("Parent: Telling Player 1 to guess lower\n");
                 fflush(stdout);
             }
 
-            if (guess2 < goal){ // player2
-                checkError(kill(p2, SIGUSR2), "Parent: Failed to send SIGUSR2 to Player 2"); // X: Added error checking
+            if (guess2 < goal) {
+                checkError(kill(p2, SIGUSR2), "Parent: Failed to send SIGUSR2 to Player 2");
                 printf("Parent: Telling Player 2 to guess higher\n");
                 fflush(stdout);
-            } 
-            else {
-                checkError(kill(p2, SIGUSR1), "Parent: Failed to send SIGUSR1 to Player 2"); // X: Added error checking
+            } else {
+                checkError(kill(p2, SIGUSR1), "Parent: Failed to send SIGUSR1 to Player 2");
                 printf("Parent: Telling Player 2 to guess lower\n");
                 fflush(stdout);
             }
 
-            // --- determining winner
-            if (guess1 == goal && guess2 == goal) {
-                printf("It's a tie!\n");
-                fflush(stdout);
-                p1score++;
-                p2score++;
-                game_over = 1; // X: Set game_over flag
-            }
-            else if (guess1 == goal) {
-                printf("Player 1 wins!\n");
-                fflush(stdout);
-                p1score++;
-                game_over = 1; // X: Set game_over flag
-            }
-            else if (guess2 == goal) {
-                printf("Player 2 wins!\n");
-                fflush(stdout);
-                p2score++;
-                game_over = 1; // X: Set game_over flag
-            }
-
             if (game_over) {
-                // X: Send reset signal only once
                 checkError(kill(p1, SIGINT), "Parent: Failed to send SIGINT to Player 1");
                 checkError(kill(p2, SIGINT), "Parent: Failed to send SIGINT to Player 2");
                 printf("Parent: Reset signal sent to both children\n");
                 fflush(stdout);
 
-                // Wait for children to acknowledge reset
-                readycount = 0;
-                while (readycount < 2) {
-                    sigsuspend(&oldmask);
-                }
-                printf("Parent: Both children have reset\n");
-                fflush(stdout);
+                // X: Wait for children to reset
+                sleep(2);
             }
+
+
         }
     }
     printf("Final Score - Player 1: %d, Player 2: %d\n", p1score, p2score);
-    fflush(stdout);
-
     printf("Parent: Game over. Terminating children.\n");
-    fflush(stdout);
     kill(p1, SIGTERM);
     kill(p2, SIGTERM);
-    
-    int status;
-    waitpid(p1, &status, 0);
-    waitpid(p2, &status, 0);
 }
 
 int main(int argc, char const *argv[])
@@ -302,7 +346,6 @@ int main(int argc, char const *argv[])
     checkError(sigaction(SIGCHLD, &sa, NULL), "sigaction SIGCHLD");
     checkError(sigaction(SIGUSR1, &sa, NULL), "sigaction SIGUSR1");
     checkError(sigaction(SIGUSR2, &sa, NULL), "sigaction SIGUSR2");
-    checkError(sigaction(SIGINT, &sa, NULL), "sigaction SIGINT");
     
     printf("Starting the game!\n");
     
@@ -329,3 +372,4 @@ int main(int argc, char const *argv[])
     parentActions(pids[0], pids[1]);
     return 0;
 }
+
