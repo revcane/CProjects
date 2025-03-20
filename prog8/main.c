@@ -17,7 +17,7 @@ int checkError(int val, const char *msg){
     return val;
 }
 
-void ChildSigHndl(int sig) {
+void childSigHndl(int sig){
     if (sig == SIGCHLD) {
         printf("got SIGCHLD\n");
     }
@@ -29,49 +29,48 @@ int main(int argc, char const *argv[]){
     int fd;
 
     struct sigaction sa;
-    sa.sa_handler = ChildSigHndl;
+    sa.sa_handler = childSigHndl;
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
-    checkError(sigaction(SIGCHILD, &sa, NULL), "sigaction SIGCHILD");
+    checkError(sigaction(SIGCHLD, &sa, NULL), "sigaction SIGCHLD");
 
     pid = fork();
 
     checkError(pid, "error creating child");
 
-    if(pid == 0) {
-        checkError(execlp("./myRand", "myRand", NULL), "Failed to run exec on myRand");
+    if(pid == 0){
+        checkError(execlp("./myRand", "myRand", NULL), "error running exec on myRand"); //running myrand program on child
     }
     else {
         wait(&status);
-        if (WIFEXITED(status)) {
-            int values[60];
+        if (WIFEXITED(status)){
+            int values[60]; 
             int sum;
             double avg;
 
             int filenum = WEXITSTATUS(status);
-            printf("program 1 got: %d\n", filenum);
-
             char filename[20];
+            //printf("program 1 got: %d\n", filenum);
             sprintf(filename, "data%d.dat", filenum);
 
             fd = checkError(open(filename, O_RDONLY, S_IRUSR), "error opening data.dat");
-
             checkError(read(fd, values, sizeof(int) * 60), "error reading data.dat");
 
-            for(int i = 0; i < 60; i++) {
-                printf("Number from file: %d\n", values[i]);
+            for(int i = 0; i < 60; i++) { //storing values in array and iterating them
+                printf("number: %d\n", values[i]);
+                //printf("number: %d | iteration %d\n", values[i],i);
                 sum += values[i];
-                printf("Sum: %d\n", sum);
+                //printf("sum: %d\n", sum);
             }
 
             avg = sum / 60.0;
-            printf("Average is: %lf\n", avg);
+            printf("average: %lf\n", avg);
 
             close(fd);
 
             checkError(unlink(filename), "error unlinking data.dat");
 
-            printf("Deleted file: %s\n", filename);
+            printf("deleted: %s\n", filename);
         }
     }
 
